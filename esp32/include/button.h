@@ -1,0 +1,10 @@
+#pragma once
+#include <Arduino.h>
+void beginButton();
+void beginButtonTask();
+void tickButtonActions();
+bool takeButtonIpRequest();
+void tickButton();
+bool buttonIsArming();
+bool buttonIsFeeding();
+uint32_t buttonHoldElapsed();
