@@ -130,7 +130,8 @@ void beginNetwork() {
     apPassword = "Fish" + String(deviceId);
     WiFi.persistent(false);
     WiFi.setHostname("fishfeeder");
-    WiFi.mode(WIFI_AP_STA);
+    // 正常运行只开启STA；需要配网时softAP()再启用热点。
+    WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);
     String ssid = savedSsid(), password = savedPassword();
     if (!ssid.isEmpty()) {
@@ -256,6 +257,13 @@ void tickNetwork() {
     if (online && waitingForConnection && WiFi.SSID() == savedSsid()) {
         setupVisible = false;
         waitingForConnection = false;
+    }
+    // 等目标网络取得IP后关闭AP及配网DNS，保留STA连接和局域网Web。
+    if (online && !waitingForConnection && apActive && WiFi.mode(WIFI_STA)) {
+        dns.stop();
+        apActive = false;
+        setupVisible = false;
+        Serial.println("Setup AP stopped; use LAN Web address");
     }
     if (!online && waitingForConnection && millis() - lastReconnect > 20000) {
         waitingForConnection = false;
