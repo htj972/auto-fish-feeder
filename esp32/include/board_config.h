@@ -15,6 +15,7 @@ constexpr float BATTERY_R_BOTTOM = 100000.0f;
 constexpr float BATTERY_CALIBRATION = 1.0f;
 constexpr bool MOTOR_ACTIVE_HIGH = true;
 constexpr int OLED_ADDRESS = 0x3C;
+constexpr unsigned OLED_IDLE_MS = 30000;
 constexpr unsigned MAX_MOTOR_MS = 30000;
 constexpr unsigned DEFAULT_FEED_MS = 2000;
 constexpr unsigned LONG_PRESS_MS = 3000;

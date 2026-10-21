@@ -248,6 +248,7 @@ void beginWeb() {
             web.send(503, "text/plain", "OLED unavailable");
             return;
         }
+        wakeDisplay();
         if (web.arg("persist") == "1" && !saveOledBrightness(uint8_t(level))) {
             web.send(500, "text/plain", "Brightness preview applied, but storage failed");
             return;
@@ -272,6 +273,7 @@ void beginWeb() {
         if (!authorized()) {
             return;
         }
+        wakeDisplay();
         if (!startFeed(settings.manualMs)) {
             web.send(409, "text/plain", "Motor unavailable or busy");
         } else {

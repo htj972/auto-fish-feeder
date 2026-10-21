@@ -2,5 +2,6 @@
 #include <Arduino.h>
 void beginDisplay();
 void tickDisplay();
+void wakeDisplay();
 uint8_t displayBrightness();
 bool setDisplayBrightness(uint8_t percent);

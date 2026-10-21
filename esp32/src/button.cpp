@@ -20,6 +20,7 @@ std::atomic<uint32_t> down{0};
 std::atomic<uint32_t> manualSequence{0};
 std::atomic<bool> setupRequest{false};
 std::atomic<bool> ipRequest{false};
+std::atomic<bool> displayActivity{false};
 std::atomic<bool> feedFailed{false};
 bool firstClick = false;
 uint32_t firstRelease = 0;
@@ -40,6 +41,10 @@ void tickButton() {
     }
     const bool raw = digitalRead(BUTTON_PIN) == LOW;
     const uint32_t now = millis();
+    // 保留短按和释放事件；持续按住期间不息屏，I2C操作仍由主循环执行。
+    if (raw || raw != rawLast) {
+        displayActivity = true;
+    }
     if (manualActive && (!motorIsFeeding() || motorFeedSequence() != manualSequence)) {
         manualActive = false;
     }
@@ -119,6 +124,10 @@ void tickButtonActions() {
 
 bool takeButtonIpRequest() {
     return ipRequest.exchange(false);
+}
+
+bool takeButtonDisplayActivity() {
+    return displayActivity.exchange(false);
 }
 
 void beginButtonTask() {

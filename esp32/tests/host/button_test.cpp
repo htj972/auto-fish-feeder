@@ -73,13 +73,16 @@ void startAP() {
 
 int main() {
     beginButton();
+    CHECK(!takeButtonDisplayActivity());
     // 1999ms松手不触发，进度复位后必须重新累计完整2秒。
     input(100, true);
+    CHECK(takeButtonDisplayActivity() && !takeButtonDisplayActivity());
     input(140, true);
     CHECK(buttonIsArming());
     input(2099, true);
     CHECK(starts == 0);
     input(2100, false);
+    CHECK(takeButtonDisplayActivity() && !takeButtonDisplayActivity());
     CHECK(!buttonIsArming() && starts == 0);
     input(2200, true);
     input(2240, true);

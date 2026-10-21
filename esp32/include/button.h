@@ -4,6 +4,7 @@ void beginButton();
 void beginButtonTask();
 void tickButtonActions();
 bool takeButtonIpRequest();
+bool takeButtonDisplayActivity();
 void tickButton();
 bool buttonIsArming();
 bool buttonIsFeeding();

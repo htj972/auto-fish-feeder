@@ -14,6 +14,9 @@ bool online = false;
 int percent = 78;
 uint32_t held = 0;
 bool ipRequested = false;
+bool keepAwake = true;
+bool wakeRequested = false;
+bool feeding = false;
 String setupPassword = "ABC12345";
 
 void step(uint32_t ms = 250) {
@@ -78,7 +81,13 @@ uint32_t buttonHoldElapsed() {
 }
 
 bool motorIsFeeding() {
-    return false;
+    return feeding;
+}
+
+bool takeButtonDisplayActivity() {
+    const bool activity = keepAwake || wakeRequested;
+    wakeRequested = false;
+    return activity;
 }
 
 int batteryPercent() {
@@ -188,5 +197,47 @@ int main() {
     const unsigned beforeInvalid = oled.commandCalls;
     CHECK(!setDisplayBrightness(0) && !setDisplayBrightness(101));
     CHECK(oled.commandCalls == beforeInvalid && oled.displayCalls == beforeBrightness);
+    // 空闲30秒硬件关屏；联网、自动投喂、调光都不能唤醒。
+    keepAwake = false;
+    step(29999);
+    CHECK(oled.displayOn);
+    step(50);
+    CHECK(!oled.displayOn && oled.lastCommand == SSD1306_DISPLAYOFF);
+    const unsigned sleepingFrames = oled.displayCalls;
+    const unsigned sleepingCommands = oled.commandCalls;
+    online = true;
+    feeding = true;
+    testTime += 60;
+    step(1000);
+    CHECK(oled.displayCalls == sleepingFrames && oled.commandCalls == sleepingCommands);
+    CHECK(setDisplayBrightness(42) && !oled.displayOn);
+    step(1000);
+    CHECK(!oled.displayOn && oled.displayCalls == sleepingFrames);
+    wakeRequested = true;
+    step(50);
+    CHECK(oled.displayOn && oled.lastCommand == SSD1306_DISPLAYON);
+    CHECK(oled.framesAtWake == sleepingFrames + 1 && displayBrightness() == 42);
+    // 持续按住不会息屏；释放后重新累计30秒，毫秒计数溢出也正常。
+    keepAwake = true;
+    step(40000);
+    CHECK(oled.displayOn);
+    testNow = 0xFFFFFF00u;
+    tickDisplay();
+    keepAwake = false;
+    step(29999);
+    CHECK(oled.displayOn);
+    step(50);
+    CHECK(!oled.displayOn);
+    // Web操作通过显式唤醒接口开屏，并延长已亮屏的待机时间。
+    wakeDisplay();
+    step(50);
+    CHECK(oled.displayOn);
+    step(20000);
+    wakeDisplay();
+    step(50);
+    step(29999);
+    CHECK(oled.displayOn);
+    step(50);
+    CHECK(!oled.displayOn);
     return 0;
 }

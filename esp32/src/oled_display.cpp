@@ -14,6 +14,9 @@
 namespace {
 Adafruit_SSD1306 oled(128, 32, &Wire, -1);
 bool oledReady = false;
+bool displaySleeping = false;
+uint32_t lastActivity = 0;
+bool displayWakeRequested = false;
 uint8_t brightnessPercent = 56;
 uint32_t lastDisplay = 0;
 uint32_t ipShownAt = 0;
@@ -144,6 +147,7 @@ void beginDisplay() {
             oled.setTextColor(SSD1306_WHITE);
             oled.setTextWrap(false);
             setDisplayBrightness(savedOledBrightness());
+            lastActivity = millis();
         } else {
             errorText = "OLED not detected";
         }
@@ -152,6 +156,11 @@ void beginDisplay() {
 
 uint8_t displayBrightness() {
     return brightnessPercent;
+}
+
+void wakeDisplay() {
+    // Web与显示均在主循环执行，留到下一次显示周期刷新画面后开屏。
+    displayWakeRequested = true;
 }
 
 bool setDisplayBrightness(uint8_t percent) {
@@ -171,6 +180,24 @@ void tickDisplay() {
         return;
     }
     lastDisplay = millis();
+    const bool buttonActivity = takeButtonDisplayActivity();
+    if (buttonActivity || displayWakeRequested) {
+        displayWakeRequested = false;
+        lastActivity = lastDisplay;
+        if (displaySleeping) {
+            // 先在关屏状态更新画面，最后开屏，避免闪现旧时间。
+            hasFrame = false;
+        }
+    }
+    if (lastDisplay - lastActivity >= OLED_IDLE_MS) {
+        if (!displaySleeping) {
+            // SSD1306硬件关屏，停止面板驱动；无需持续发送黑色画面。
+            oled.ssd1306_command(SSD1306_DISPLAYOFF);
+            displaySleeping = true;
+        }
+        wasConnected = networkConnected();
+        return;
+    }
     const bool connected = networkConnected();
     if (connected && !wasConnected) {
         ipShownAt = millis();
@@ -266,4 +293,8 @@ void tickDisplay() {
         memcpy(previousFrame, frame, sizeof(previousFrame));
     }
     hasFrame = true;
+    if (displaySleeping) {
+        oled.ssd1306_command(SSD1306_DISPLAYON);
+        displaySleeping = false;
+    }
 }

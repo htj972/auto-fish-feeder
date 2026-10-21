@@ -7,16 +7,31 @@ constexpr int SSD1306_WHITE = 1;
 constexpr int SSD1306_BLACK = 0;
 constexpr int SSD1306_SWITCHCAPVCC = 2;
 constexpr int SSD1306_SETCONTRAST = 0x81;
+constexpr int SSD1306_DISPLAYOFF = 0xAE;
+constexpr int SSD1306_DISPLAYON = 0xAF;
 
 class Adafruit_SSD1306 {
   public:
     unsigned displayCalls = 0;
     unsigned commandCalls = 0;
     uint8_t lastCommand = 0;
+    bool displayOn = true;
+    bool contrastArgument = false;
+    unsigned framesAtWake = 0;
 
     void ssd1306_command(uint8_t command) {
         ++commandCalls;
         lastCommand = command;
+        if (contrastArgument) {
+            contrastArgument = false;
+        } else if (command == SSD1306_SETCONTRAST) {
+            contrastArgument = true;
+        } else if (command == SSD1306_DISPLAYOFF) {
+            displayOn = false;
+        } else if (command == SSD1306_DISPLAYON) {
+            displayOn = true;
+            framesAtWake = displayCalls;
+        }
     }
 
     Adafruit_SSD1306(int, int, TestWire *, int) {
