@@ -11,6 +11,7 @@ bool storageReady = false;
 String ssid, password;
 // 56%映射为143，接近128×32 SSD1306原先的0x8F默认对比度。
 uint8_t oledBrightness = 56;
+uint8_t oledIdleSeconds = OLED_IDLE_MS / 1000;
 } // namespace
 
 bool validSettings(const Settings &s) {
@@ -36,6 +37,11 @@ void beginSettings() {
     // 仅接受长度、版本和字段范围均匹配的存储内容，否则保留默认值。
     Settings loaded{};
     if (storageReady) {
+        const uint8_t storedIdle = prefs.getUChar("oled_idle", OLED_IDLE_MS / 1000);
+        oledIdleSeconds = storedIdle == 0 || (storedIdle >= OLED_IDLE_MIN_SECONDS &&
+                                              storedIdle <= OLED_IDLE_MAX_SECONDS)
+                              ? storedIdle
+                              : OLED_IDLE_MS / 1000;
         const uint8_t storedBrightness = prefs.getUChar("oled_level", 56);
         if (storedBrightness >= 1 && storedBrightness <= 100) {
             oledBrightness = storedBrightness;
@@ -108,5 +114,21 @@ bool saveOledBrightness(uint8_t percent) {
         return false;
     }
     oledBrightness = percent;
+    return true;
+}
+
+uint8_t savedOledIdleSeconds() {
+    return oledIdleSeconds;
+}
+
+bool saveOledIdleSeconds(uint8_t seconds) {
+    if (!storageReady ||
+        (seconds != 0 && (seconds < OLED_IDLE_MIN_SECONDS || seconds > OLED_IDLE_MAX_SECONDS))) {
+        return false;
+    }
+    if (seconds != oledIdleSeconds && prefs.putUChar("oled_idle", seconds) != sizeof(uint8_t)) {
+        return false;
+    }
+    oledIdleSeconds = seconds;
     return true;
 }

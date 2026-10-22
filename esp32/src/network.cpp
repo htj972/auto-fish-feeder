@@ -5,6 +5,7 @@
 #include <ESPmDNS.h>
 #include <WiFi.h>
 #include <algorithm>
+#include <atomic>
 #include <esp_wifi.h>
 
 namespace {
@@ -12,6 +13,8 @@ DNSServer dns;
 bool apActive = false;
 bool setupVisible = false;
 bool waitingForConnection = false;
+bool connectionPending = false;
+String targetSsid, targetPassword;
 String apName, apPassword;
 uint32_t lastReconnect = 0;
 enum class ScanState { Idle, Running, Ready, Failed };
@@ -27,6 +30,11 @@ ScanEntry scanEntries[24];
 int scanCount = 0;
 uint32_t scanStarted = 0;
 bool mdnsActive = false;
+std::atomic<uint8_t> disconnectReason{0};
+const char *connectionState = "idle";
+uint32_t connectedAt = 0;
+bool connectedPreviously = false;
+constexpr uint32_t AP_CLOSE_DELAY_MS = 5000;
 
 String jsonString(const String &value) {
     String out = "\"";
@@ -122,6 +130,12 @@ void startAP() {
 }
 
 void beginNetwork() {
+    WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+        if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+            // WiFi回调不修改String或操作Web，主循环消费失败原因。
+            disconnectReason = info.wifi_sta_disconnected.reason;
+        }
+    });
     apName = "FishFeeder-" + String(uint32_t(ESP.getEfuseMac()), HEX);
     // Stable unique setup password, shown through USB CDC; change for production.
     char deviceId[9];
@@ -132,9 +146,14 @@ void beginNetwork() {
     WiFi.setHostname("fishfeeder");
     // 正常运行只开启STA；需要配网时softAP()再启用热点。
     WiFi.mode(WIFI_STA);
-    WiFi.setAutoReconnect(true);
+    // 重试由本模块统一管理，避免旧网络自动重连干扰用户提交的新配置。
+    WiFi.setAutoReconnect(false);
+    lastReconnect = millis();
     String ssid = savedSsid(), password = savedPassword();
     if (!ssid.isEmpty()) {
+        connectionState = "connecting";
+        targetSsid = ssid;
+        waitingForConnection = true;
         WiFi.begin(ssid.c_str(), password.c_str());
     } else {
         startAP();
@@ -148,8 +167,14 @@ void connectNetwork(const String &ssid, const String &password) {
         scanState = ScanState::Idle;
     }
     startAP();
+    targetSsid = ssid;
+    targetPassword = password;
     waitingForConnection = true;
-    WiFi.begin(ssid.c_str(), password.c_str());
+    connectionState = "connecting";
+    connectedPreviously = false;
+    connectionPending = true;
+    // 只重置STA，保留AP和配网页面；下一轮延后连接，让旧连接事件先处理完。
+    WiFi.enableSTA(false);
     lastReconnect = millis();
 }
 
@@ -227,23 +252,48 @@ String networkScanJson() {
     return json + "]}";
 }
 
+String networkConnectionJson() {
+    const bool online = networkConnected() && !connectionPending &&
+                        (!waitingForConnection || WiFi.SSID() == targetSsid);
+    return String("{\"state\":") + jsonString(online ? "connected" : connectionState) +
+           ",\"ip\":" + jsonString(online ? networkAddress() : "") + "}";
+}
+
 void tickNetwork() {
     tickScan();
     if (apActive) {
         dns.processNextRequest();
     }
+    if (connectionPending) {
+        if (millis() - lastReconnect < 200) {
+            return;
+        }
+        connectionPending = false;
+        disconnectReason = 0;
+        lastReconnect = millis();
+        const wl_status_t result = WiFi.begin(targetSsid.c_str(), targetPassword.c_str());
+        targetPassword = "";
+        Serial.printf("WiFi connection requested, status=%d\n", int(result));
+        if (result == WL_CONNECT_FAILED) {
+            connectionState = "failed";
+            waitingForConnection = false;
+            errorText = "WiFi connection start failed; retry setup";
+        }
+    }
     String ssid = savedSsid();
     if (WiFi.status() != WL_CONNECTED && millis() > 20000) {
         startAP();
     }
-    if (scanState != ScanState::Running && !ssid.isEmpty() && WiFi.status() != WL_CONNECTED &&
-        millis() - lastReconnect > 30000) {
-        lastReconnect = millis();
-        WiFi.reconnect();
+    if (!waitingForConnection && scanState != ScanState::Running && !ssid.isEmpty() &&
+        WiFi.status() != WL_CONNECTED && millis() - lastReconnect > 30000) {
+        // 显式重新加载已保存凭据，不使用可能仍保留旧配置的reconnect()。
+        connectNetwork(ssid, savedPassword());
+        return;
     }
-    static bool connected = false;
     bool online = WiFi.status() == WL_CONNECTED;
-    if (online && !connected) {
+    if (online && !connectedPreviously) {
+        connectedAt = millis();
+        connectionState = "connected";
         Serial.println("Web: http://" + WiFi.localIP().toString());
         setupVisible = false;
         if (mdnsActive) {
@@ -259,7 +309,8 @@ void tickNetwork() {
         waitingForConnection = false;
     }
     // 等目标网络取得IP后关闭AP及配网DNS，保留STA连接和局域网Web。
-    if (online && !waitingForConnection && apActive && WiFi.mode(WIFI_STA)) {
+    if (online && !waitingForConnection && apActive &&
+        millis() - connectedAt >= AP_CLOSE_DELAY_MS && WiFi.mode(WIFI_STA)) {
         dns.stop();
         apActive = false;
         setupVisible = false;
@@ -267,6 +318,23 @@ void tickNetwork() {
     }
     if (!online && waitingForConnection && millis() - lastReconnect > 20000) {
         waitingForConnection = false;
+        connectionState = "timeout";
+        Serial.printf("WiFi connection timed out, status=%d; setup AP remains active\n",
+                      int(WiFi.status()));
     }
-    connected = online;
+    const uint8_t reason = disconnectReason.exchange(0);
+    if (!online && waitingForConnection) {
+        if (reason == WIFI_REASON_AUTH_FAIL || reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT ||
+            reason == WIFI_REASON_HANDSHAKE_TIMEOUT) {
+            connectionState = "auth_failed";
+            waitingForConnection = false;
+        } else if (reason == WIFI_REASON_NO_AP_FOUND) {
+            connectionState = "not_found";
+            waitingForConnection = false;
+        }
+    }
+    if (!online && connectedPreviously) {
+        connectionState = "disconnected";
+    }
+    connectedPreviously = online;
 }

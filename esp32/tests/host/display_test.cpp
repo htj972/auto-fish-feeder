@@ -17,6 +17,7 @@ bool ipRequested = false;
 bool keepAwake = true;
 bool wakeRequested = false;
 bool feeding = false;
+uint8_t idleSeconds = 30;
 String setupPassword = "ABC12345";
 
 void step(uint32_t ms = 250) {
@@ -30,6 +31,10 @@ String errorText;
 
 uint8_t savedOledBrightness() {
     return 56;
+}
+
+uint8_t savedOledIdleSeconds() {
+    return idleSeconds;
 }
 
 time_t displayTestTime(time_t *) {
@@ -236,6 +241,25 @@ int main() {
     wakeDisplay();
     step(50);
     step(29999);
+    CHECK(oled.displayOn);
+    step(50);
+    CHECK(!oled.displayOn);
+    idleSeconds = 0;
+    wakeDisplay();
+    step(50);
+    step(120000);
+    CHECK(oled.displayOn);
+    idleSeconds = 15;
+    wakeDisplay();
+    step(50);
+    step(14999);
+    CHECK(oled.displayOn);
+    step(50);
+    CHECK(!oled.displayOn);
+    idleSeconds = 90;
+    wakeDisplay();
+    step(50);
+    step(89999);
     CHECK(oled.displayOn);
     step(50);
     CHECK(!oled.displayOn);

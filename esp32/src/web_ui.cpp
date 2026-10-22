@@ -114,7 +114,15 @@ void home() {
          "max='100' step='1' value='" +
          String(displayBrightness()) +
          "'><p>拖动预览，点击保存后重启仍有效。</p><button id='brightness-save'>保存亮度</button> "
-         "<span id='brightness-state' role='status'></span></form></section>";
+         "<span id='brightness-state' role='status'></span></form>";
+    h += "<form method='post' action='/display/idle'>" + hiddenToken() +
+         "<p><label>自动息屏（秒） <input type='number' name='seconds' min='15' max='90' "
+         "step='1' required value='" +
+         String(savedOledIdleSeconds() ? savedOledIdleSeconds() : 30) +
+         "'></label><label><input type='checkbox' name='always' " +
+         (savedOledIdleSeconds() == 0 ? String("checked") : String("")) +
+         ">常亮</label></p><p>默认30秒，可设15～90秒；常亮时不自动息屏。保存后重启仍有效。</p>"
+         "<button>保存息屏设置</button></form></section>";
     h += "<section><h2>每日投喂</h2><p>时长单位秒（s），范围 "
          "0.1～30。相同时刻的任务只执行一项；离线期间错过的任务不补喂。</p><form method='post' "
          "action='/settings'>" +
@@ -134,16 +142,18 @@ void home() {
              "' min='0.1' max='30' step='0.001' value='" +
              durationSeconds(settings.tasks[i].duration) + "' required></td></tr>";
     }
-    h += "</table><button>保存任务</button></form></section><section><h2>WiFi 配网</h2><p>输入家庭 "
-         "2.4 GHz WiFi 名称和密码。密码留空表示开放网络。连接成功后热点将在重启后关闭。</p><form "
-         "method='post' action='/wifi'>" +
-         hiddenToken();
+    h +=
+        "</table><button>保存任务</button></form></section><section><h2>WiFi 配网</h2><p>输入家庭 "
+        "2.4 GHz WiFi 名称和密码。密码留空表示开放网络。连接成功后显示IP，5秒后关闭热点。</p><form "
+        "id='wifi-form' method='post' action='/wifi'>" +
+        hiddenToken();
     h += "<p><button type='button' id='scan'>重新扫描</button> <span id='scan-state' "
          "role='status'></span></p><label>附近WiFi <select id='networks'><option "
          "value=''>请选择，或手动输入隐藏网络</option></select></label><br><input id='ssid' "
          "name='ssid' maxlength='32' placeholder='WiFi 名称（支持手动输入）' required><input "
          "name='password' type='password' maxlength='63' placeholder='WiFi "
-         "密码'><button>保存并连接</button></form></section>";
+         "密码'><button id='wifi-connect'>保存并连接</button></form>"
+         "<p id='wifi-state' role='status' aria-live='polite'></p></section>";
     h += R"HTML(<script>
 const scanButton=document.getElementById('scan'),scanState=document.getElementById('scan-state'),networks=document.getElementById('networks');
 const brightness=document.getElementById('brightness');
@@ -195,6 +205,37 @@ async function scan(){
  }catch(e){scanButton.disabled=false;scanState.textContent='暂时无法扫描，请稍后重试或手动输入';}
 }
 scanButton.addEventListener('click',scan);scan();
+const wifiForm=document.getElementById('wifi-form');
+if(wifiForm){
+ const status=document.getElementById('wifi-state'),button=document.getElementById('wifi-connect');
+ let timer,started=0;
+ const messages={auth_failed:'认证失败，密码可能不正确，请检查后重试。',not_found:'未找到该WiFi，请确认名称、2.4GHz频段及信号。',timeout:'连接超时，请检查密码、信号及路由器设置。',failed:'无法启动连接，请重试。',disconnected:'设备已断网，可重新连接。'};
+ async function pollConnection(){
+  try{
+   const response=await fetch('/wifi/status',{cache:'no-store'});
+   if(!response.ok)throw new Error();
+   const data=await response.json();
+   if(data.state==='connected'){
+    status.textContent='连接成功！设备IP：'+data.ip+'。热点即将关闭，请让手机连接同一家庭WiFi后访问：http://'+data.ip+'/';
+    button.disabled=false;return;
+   }
+   if(messages[data.state]){status.textContent=messages[data.state];button.disabled=false;return;}
+   status.textContent='正在连接并验证密码… '+Math.floor((Date.now()-started)/1000)+'秒';
+  }catch(e){status.textContent='暂时无法读取设备状态。热点可能已关闭，请检查手机网络，或双击设备按键查看IP。';}
+  if(Date.now()-started<30000)timer=setTimeout(pollConnection,700);
+  else{status.textContent='未能确认连接结果。请双击设备按键查看IP；若未联网，请重新提交配置。';button.disabled=false;}
+ }
+ wifiForm.addEventListener('submit',async e=>{
+  e.preventDefault();clearTimeout(timer);clearTimeout(scanTimer);button.disabled=true;
+  status.textContent='正在提交配置…';started=Date.now();
+  try{
+   const form=new URLSearchParams(new FormData(wifiForm));form.set('async','1');
+   const response=await fetch('/wifi',{method:'POST',body:form});
+   if(!response.ok)throw new Error(await response.text());
+   status.textContent='正在连接并验证密码…';timer=setTimeout(pollConnection,700);
+  }catch(e){status.textContent='提交失败：'+e.message;button.disabled=false;}
+ });
+}
 </script></html>)HTML";
     web.sendHeader("Cache-Control", "no-store");
     web.send(200, "text/html; charset=utf-8", h);
@@ -235,6 +276,27 @@ void beginWeb() {
     token = String(esp_random(), HEX) + String(esp_random(), HEX);
     web.on("/", HTTP_GET, home);
     web.on("/settings", HTTP_POST, saveSettings);
+    web.on("/display/idle", HTTP_POST, [] {
+        if (!authorized()) {
+            return;
+        }
+        uint32_t seconds = 0;
+        if (!web.hasArg("always") &&
+            !number(web.arg("seconds"), OLED_IDLE_MIN_SECONDS, OLED_IDLE_MAX_SECONDS, seconds)) {
+            web.send(400, "text/plain", "Idle time must be 15..90 seconds or always on");
+            return;
+        }
+        if (!saveOledIdleSeconds(uint8_t(seconds))) {
+            web.send(500, "text/plain", "Storage failed");
+            return;
+        }
+        wakeDisplay();
+        redirectHome();
+    });
+    web.on("/wifi/status", HTTP_GET, [] {
+        web.sendHeader("Cache-Control", "no-store");
+        web.send(200, "application/json; charset=utf-8", networkConnectionJson());
+    });
     web.on("/display/brightness", HTTP_POST, [] {
         if (!authorized()) {
             return;
@@ -304,7 +366,11 @@ void beginWeb() {
             web.send(500, "text/plain", "Storage failed");
             return;
         }
-        redirectHome();
+        if (web.arg("async") == "1") {
+            web.send(202, "application/json", "{\"state\":\"connecting\"}");
+        } else {
+            redirectHome();
+        }
         connectNetwork(s, p);
     });
     web.onNotFound([] {

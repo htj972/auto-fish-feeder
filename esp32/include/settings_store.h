@@ -27,3 +27,5 @@ String savedPassword();
 bool saveWifiCredentials(const String &ssid, const String &password);
 uint8_t savedOledBrightness();
 bool saveOledBrightness(uint8_t percent);
+uint8_t savedOledIdleSeconds();
+bool saveOledIdleSeconds(uint8_t seconds); // 0表示常亮，否则15～90秒。

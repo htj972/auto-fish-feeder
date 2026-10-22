@@ -189,7 +189,8 @@ void tickDisplay() {
             hasFrame = false;
         }
     }
-    if (lastDisplay - lastActivity >= OLED_IDLE_MS) {
+    const uint32_t idleMs = uint32_t(savedOledIdleSeconds()) * 1000;
+    if (idleMs != 0 && lastDisplay - lastActivity >= idleMs) {
         if (!displaySleeping) {
             // SSD1306硬件关屏，停止面板驱动；无需持续发送黑色画面。
             oled.ssd1306_command(SSD1306_DISPLAYOFF);

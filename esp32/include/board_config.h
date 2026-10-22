@@ -7,8 +7,8 @@ constexpr int OLED_SDA = 4;
 constexpr int OLED_SCL = 3;
 constexpr int CHARGE_PIN = 20;      // TP4056 CHRG, open drain, active low.
 constexpr int CHARGE_DONE_PIN = 21; // TP4056 STDBY, open drain, active low.
-constexpr int BATTERY_PIN = 2;
-// Battery+ -> 100k -> GPIO2 -> 100k -> GND. Requires physical resistor change.
+constexpr int BATTERY_PIN = 1;      // ADC1_CH1; move the divider midpoint from GPIO2 to GPIO1.
+// Battery+ -> 100k -> GPIO1 -> 100k -> GND. No external pull-up at the ADC node.
 constexpr bool BATTERY_ADC_ENABLED = true;
 constexpr float BATTERY_R_TOP = 100000.0f;
 constexpr float BATTERY_R_BOTTOM = 100000.0f;
@@ -16,6 +16,8 @@ constexpr float BATTERY_CALIBRATION = 1.0f;
 constexpr bool MOTOR_ACTIVE_HIGH = true;
 constexpr int OLED_ADDRESS = 0x3C;
 constexpr unsigned OLED_IDLE_MS = 30000;
+constexpr unsigned OLED_IDLE_MIN_SECONDS = 15;
+constexpr unsigned OLED_IDLE_MAX_SECONDS = 90;
 constexpr unsigned MAX_MOTOR_MS = 30000;
 constexpr unsigned DEFAULT_FEED_MS = 2000;
 constexpr unsigned LONG_PRESS_MS = 3000;

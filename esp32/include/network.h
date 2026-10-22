@@ -15,3 +15,4 @@ String networkAddress();
 void connectNetwork(const String &ssid, const String &password);
 bool startNetworkScan();
 String networkScanJson();
+String networkConnectionJson();

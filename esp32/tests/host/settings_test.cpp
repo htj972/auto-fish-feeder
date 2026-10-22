@@ -11,6 +11,7 @@ String errorText = "";
 int main() {
     beginSettings();
     CHECK(savedOledBrightness() == 56);
+    CHECK(savedOledIdleSeconds() == 30);
     Settings next = settings;
     next.tasks[0].enabled = 1;
     next.tasks[0].hour = 8;
@@ -25,5 +26,15 @@ int main() {
     beginSettings();
     CHECK(savedOledBrightness() == 100);
     CHECK(settings.tasks[0].hour == 8);
+    CHECK(saveOledIdleSeconds(15));
+    beginSettings();
+    CHECK(savedOledIdleSeconds() == 15);
+    CHECK(saveOledIdleSeconds(90));
+    CHECK(!saveOledIdleSeconds(14) && !saveOledIdleSeconds(91));
+    beginSettings();
+    CHECK(savedOledIdleSeconds() == 90);
+    CHECK(saveOledIdleSeconds(0));
+    beginSettings();
+    CHECK(savedOledIdleSeconds() == 0 && settings.tasks[0].hour == 8);
     return 0;
 }
